@@ -7,6 +7,7 @@
  */
 export interface HealthStatus {
   status: string;
+  database?: string;
 }
 
 export interface Skill {
@@ -169,6 +170,44 @@ export interface Reports {
   distribution: ReportsDistributionItem[];
 }
 
+export type InteractionInputAction = typeof InteractionInputAction[keyof typeof InteractionInputAction];
+
+
+export const InteractionInputAction = {
+  viewed: 'viewed',
+  saved: 'saved',
+  applied: 'applied',
+} as const;
+
+export interface InteractionInput {
+  jobId: string;
+  action: InteractionInputAction;
+}
+
+export type InteractionAction = typeof InteractionAction[keyof typeof InteractionAction];
+
+
+export const InteractionAction = {
+  viewed: 'viewed',
+  saved: 'saved',
+  applied: 'applied',
+} as const;
+
+export interface Interaction {
+  id: string;
+  userId: string;
+  jobId: string;
+  action: InteractionAction;
+  timestamp: string;
+}
+
+export type UserInteractionsInteractions = {[key: string]: string[]};
+
+export interface UserInteractions {
+  interactions: UserInteractionsInteractions;
+  activityLog: Interaction[];
+}
+
 export type GetDashboardParams = {
 roleId?: string;
 };
@@ -185,6 +224,10 @@ sort?: GetJobsSort;
  * @maximum 300
  */
 limit?: number;
+/**
+ * @minimum 1
+ */
+page?: number;
 };
 
 export type GetJobsSort = typeof GetJobsSort[keyof typeof GetJobsSort];

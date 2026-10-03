@@ -12,4 +12,3 @@ router.use(jobsRouter);
 router.use(activityRouter);
 
 export default router;
-

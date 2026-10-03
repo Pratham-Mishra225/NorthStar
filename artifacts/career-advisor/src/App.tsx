@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Route, Switch, Router as WouterRouter } from 'wouter';
 import { Shell } from '@/components/layout/Shell';
 import { useLocalCareerState } from '@/hooks/useLocalCareerState';
@@ -11,49 +10,45 @@ import { JobDetail } from '@/pages/JobDetail';
 import { Reports } from '@/pages/Reports';
 import NotFound from '@/pages/not-found';
 
-const queryClient = new QueryClient();
-
 function App() {
   const [mobileMenu, setMobileMenu] = useState(false);
   const { local, persist, resumeText, setResumeText, addInteraction } = useLocalCareerState();
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-        <Shell menuOpen={mobileMenu} setMenuOpen={setMobileMenu}>
-          <Switch>
-            <Route path="/" component={() => <Landing />} />
-            <Route
-              path="/analyze"
-              component={() => (
-                <Analyze local={local} persist={persist} setResumeText={setResumeText} />
-              )}
-            />
-            <Route
-              path="/dashboard"
-              component={() => (
-                <Dashboard
-                  local={local}
-                  resumeText={resumeText}
-                  persist={persist}
-                  addInteraction={addInteraction}
-                />
-              )}
-            />
-            <Route
-              path="/jobs"
-              component={() => <Jobs local={local} addInteraction={addInteraction} />}
-            />
-            <Route
-              path="/jobs/:jobId"
-              component={() => <JobDetail local={local} addInteraction={addInteraction} />}
-            />
-            <Route path="/reports" component={() => <Reports local={local} />} />
-            <Route component={NotFound} />
-          </Switch>
-        </Shell>
-      </WouterRouter>
-    </QueryClientProvider>
+    <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+      <Shell menuOpen={mobileMenu} setMenuOpen={setMobileMenu}>
+        <Switch>
+          <Route path="/" component={() => <Landing />} />
+          <Route
+            path="/analyze"
+            component={() => (
+              <Analyze local={local} persist={persist} setResumeText={setResumeText} />
+            )}
+          />
+          <Route
+            path="/dashboard"
+            component={() => (
+              <Dashboard
+                local={local}
+                resumeText={resumeText}
+                persist={persist}
+                addInteraction={addInteraction}
+              />
+            )}
+          />
+          <Route
+            path="/jobs"
+            component={() => <Jobs local={local} addInteraction={addInteraction} />}
+          />
+          <Route
+            path="/jobs/:jobId"
+            component={() => <JobDetail local={local} addInteraction={addInteraction} />}
+          />
+          <Route path="/reports" component={() => <Reports local={local} />} />
+          <Route component={NotFound} />
+        </Switch>
+      </Shell>
+    </WouterRouter>
   );
 }
 

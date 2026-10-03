@@ -19,4 +19,8 @@ sort?: GetJobsSort;
  * @maximum 300
  */
 limit?: number;
+/**
+ * @minimum 1
+ */
+page?: number;
 };

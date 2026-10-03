@@ -1,38 +1,79 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+  useGetInteractions,
+  useRecordInteraction,
+  getGetInteractionsQueryKey,
+  getGetReportsQueryKey,
+  getGetDashboardQueryKey,
+} from '@ai-career-advisor/api-client';
 import type { LocalState, ActivityAction } from '@/types/career';
-import { loadStoredState, saveStoredState } from '@/services/activityStorage';
 
 export function useLocalCareerState() {
-  const [local, setLocal] = useState<LocalState>(loadStoredState);
+  const queryClient = useQueryClient();
+  const interactionsQuery = useGetInteractions();
+  const recordMutation = useRecordInteraction();
+
+  const [local, setLocal] = useState<LocalState>({
+    targetRoleId: '',
+    analysis: null,
+    interactions: {},
+    activityLog: [],
+  });
+
   const [resumeText, setResumeText] = useState('');
+
+  // Sync state whenever MongoDB returns persistent user interactions
+  useEffect(() => {
+    if (interactionsQuery.data) {
+      setLocal((prev) => ({
+        ...prev,
+        interactions: (interactionsQuery.data.interactions || {}) as Record<string, ActivityAction[]>,
+        activityLog: interactionsQuery.data.activityLog || [],
+      }));
+    }
+  }, [interactionsQuery.data]);
 
   const persist = useCallback((next: LocalState) => {
     setLocal(next);
-    saveStoredState(next);
   }, []);
 
   const addInteraction = useCallback((jobId: string, action: ActivityAction) => {
+    // Optimistic UI update
     setLocal((prev) => {
       const current = prev.interactions[jobId] || [];
       const alreadyActive = current.includes(action);
       if (action === 'saved' && alreadyActive) {
-        const next: LocalState = {
+        return {
           ...prev,
           interactions: { ...prev.interactions, [jobId]: current.filter((item) => item !== action) },
         };
-        saveStoredState(next);
-        return next;
       }
       if (alreadyActive) return prev;
-      const next: LocalState = {
+      return {
         ...prev,
         interactions: { ...prev.interactions, [jobId]: [...current, action] },
-        activityLog: [...prev.activityLog, { jobId, action, timestamp: new Date().toISOString() }],
+        activityLog: [{ id: `${jobId}-${Date.now()}`, userId: 'current', jobId, action, timestamp: new Date().toISOString() }, ...prev.activityLog],
       };
-      saveStoredState(next);
-      return next;
     });
-  }, []);
+
+    // Send persistent mutation to MongoDB
+    recordMutation.mutate(
+      { data: { jobId, action } },
+      {
+        onSuccess: (data) => {
+          setLocal((prev) => ({
+            ...prev,
+            interactions: (data.interactions || {}) as Record<string, ActivityAction[]>,
+            activityLog: data.activityLog || [],
+          }));
+          queryClient.invalidateQueries({ queryKey: getGetInteractionsQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getGetReportsQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getGetDashboardQueryKey() });
+        },
+      }
+    );
+  }, [recordMutation, queryClient]);
 
   return {
     local,

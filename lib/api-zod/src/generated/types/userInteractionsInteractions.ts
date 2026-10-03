@@ -6,7 +6,4 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface HealthStatus {
-  status: string;
-  database?: string;
-}
+export type UserInteractionsInteractions = {[key: string]: string[]};

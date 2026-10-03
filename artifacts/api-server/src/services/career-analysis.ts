@@ -1,5 +1,6 @@
 import type {
   AtsAnalysis,
+  Dashboard,
   Job,
   JobMatch,
   ResumeAnalysis,
@@ -10,11 +11,14 @@ import type {
 import {
   demoResume,
   findSkillDefinition,
-  jobs,
-  roleById,
-  roles,
   skillTaxonomy,
 } from "../data/career-data";
+import { getAllRoles, getRoleById } from "../repositories/roleRepository";
+import { getAllActiveJobs, countJobs } from "../repositories/jobRepository";
+import { saveResume, getLatestResumeByUserId } from "../repositories/resumeRepository";
+import { saveAtsAnalysis, getLatestAtsAnalysis } from "../repositories/atsRepository";
+import { saveRecommendations, getLatestRecommendations } from "../repositories/recommendationRepository";
+import { getCurrentUser, getCurrentUserId, setCurrentUserTargetRole } from "./userService";
 
 const sectionPatterns: Array<[string, RegExp]> = [
   ["Summary", /^\s*(professional\s+)?(summary|profile|objective)\s*$/im],
@@ -58,7 +62,7 @@ function normalizeSkill(name: string): string {
   return (definition?.name ?? name).toLowerCase();
 }
 
-function calculateReadiness(skills: Skill[], role: Role): {
+export function calculateReadiness(skills: Skill[], role: Role): {
   readiness: number;
   matched: string[];
   missing: WeightedSkill[];
@@ -98,7 +102,7 @@ function getSectionText(text: string, sectionName: string): string {
   return content.join("\n");
 }
 
-function scoreAts(text: string, skills: Skill[], role: Role): AtsAnalysis {
+export function scoreAts(text: string, skills: Skill[], role: Role): AtsAnalysis {
   const normalizedSkills = new Set(skills.map((skill) => normalizeSkill(skill.name)));
   const matchedKeywords = role.skills
     .filter((skill) => normalizedSkills.has(normalizeSkill(skill.name)))
@@ -191,19 +195,7 @@ function tokenize(text: string): string[] {
     .filter((token) => token.length > 1 && !stopWords.has(token));
 }
 
-const jobTokens = jobs.map((job) => tokenize(`${job.title} ${job.category} ${job.description} ${job.skills.map((skill) => skill.name).join(" ")}`));
-const documentFrequency = new Map<string, number>();
-for (const tokens of jobTokens) {
-  for (const term of new Set(tokens)) documentFrequency.set(term, (documentFrequency.get(term) ?? 0) + 1);
-}
-const inverseDocumentFrequency = new Map(
-  [...documentFrequency].map(([term, count]) => [
-    term,
-    Math.log(1 + jobs.length / (1 + count)),
-  ]),
-);
-
-function tfIdf(tokens: string[]): Map<string, number> {
+function computeTfIdf(tokens: string[], inverseDocumentFrequency: Map<string, number>): Map<string, number> {
   const counts = new Map<string, number>();
   for (const token of tokens) counts.set(token, (counts.get(token) ?? 0) + 1);
   const vector = new Map<string, number>();
@@ -212,10 +204,6 @@ function tfIdf(tokens: string[]): Map<string, number> {
   }
   return vector;
 }
-
-const precomputedJobVectors = new Map(
-  jobs.map((job, index) => [job.id, tfIdf(jobTokens[index])]),
-);
 
 function cosineSimilarity(a: Map<string, number>, b: Map<string, number>): number {
   let dot = 0;
@@ -228,16 +216,43 @@ function cosineSimilarity(a: Map<string, number>, b: Map<string, number>): numbe
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
-export function recommendJobs(text: string, targetRoleId?: string): JobMatch[] {
+export function computeRecommendations(
+  text: string,
+  targetRole: Role | null,
+  allJobs: Job[]
+): JobMatch[] {
   const resumeSkills = new Set(extractSkills(text).map((skill) => normalizeSkill(skill.name)));
-  const resumeVector = tfIdf(tokenize(text));
-  const targetRole = targetRoleId ? roleById(targetRoleId) : undefined;
+  const jobTokensList = allJobs.map((job) =>
+    tokenize(`${job.title} ${job.category} ${job.description} ${job.skills.map((skill) => skill.name).join(" ")}`)
+  );
+
+  const documentFrequency = new Map<string, number>();
+  for (const tokens of jobTokensList) {
+    for (const term of new Set(tokens)) {
+      documentFrequency.set(term, (documentFrequency.get(term) ?? 0) + 1);
+    }
+  }
+
+  const inverseDocumentFrequency = new Map(
+    [...documentFrequency].map(([term, count]) => [
+      term,
+      Math.log(1 + allJobs.length / (1 + count)),
+    ])
+  );
+
+  const resumeVector = computeTfIdf(tokenize(text), inverseDocumentFrequency);
+  const jobVectors = new Map(
+    allJobs.map((job, index) => [job.id, computeTfIdf(jobTokensList[index], inverseDocumentFrequency)])
+  );
+
   const candidates = targetRole
-    ? jobs.filter((job) =>
-      job.category === targetRole.category ||
-      job.title.toLowerCase().includes(targetRole.name.toLowerCase()),
+    ? allJobs.filter(
+      (job) =>
+        job.category === targetRole.category ||
+        job.title.toLowerCase().includes(targetRole.name.toLowerCase())
     )
-    : jobs;
+    : allJobs;
+
   return candidates
     .map((job) => {
       const totalWeight = job.skills.reduce((sum, skill) => sum + skill.weight, 0);
@@ -245,7 +260,7 @@ export function recommendJobs(text: string, targetRoleId?: string): JobMatch[] {
       const missing = job.skills.filter((skill) => !resumeSkills.has(normalizeSkill(skill.name)));
       const matchedWeight = matched.reduce((sum, skill) => sum + skill.weight, 0);
       const skillMatch = totalWeight ? Math.round((matchedWeight / totalWeight) * 100) : 0;
-      const similarity = cosineSimilarity(resumeVector, precomputedJobVectors.get(job.id) ?? new Map());
+      const similarity = cosineSimilarity(resumeVector, jobVectors.get(job.id) ?? new Map());
       const textSimilarity = Math.round(Math.max(0, Math.min(1, similarity)) * 100);
       const matchScore = Math.round(skillMatch * 0.7 + textSimilarity * 0.3);
       const explanation = matched.length
@@ -266,10 +281,15 @@ export function recommendJobs(text: string, targetRoleId?: string): JobMatch[] {
     .sort((a, b) => b.matchScore - a.matchScore || a.title.localeCompare(b.title));
 }
 
-export function analyzeResume(filename: string, text: string, targetRoleId: string): ResumeAnalysis {
-  const role = roleById(targetRoleId);
+export async function analyzeResume(
+  filename: string,
+  text: string,
+  targetRoleId: string
+): Promise<ResumeAnalysis> {
+  const role = await getRoleById(targetRoleId);
   if (!role) throw new Error("Role not found");
 
+  const userId = getCurrentUserId();
   const skills = extractSkills(text);
   const roleFit = calculateReadiness(skills, role);
   const topGaps = roleFit.missing.slice(0, 3);
@@ -277,7 +297,49 @@ export function analyzeResume(filename: string, text: string, targetRoleId: stri
     const action = index === 0 ? "Build a small project using" : index === 1 ? "Practice" : "Explore";
     return `${action} ${skill.name}; document the work only if you complete it.`;
   });
-  if (improvementPlan.length === 0) improvementPlan.push("Your resume includes every listed role skill. Review projects for measurable outcomes and keep your examples current.");
+  if (improvementPlan.length === 0) {
+    improvementPlan.push(
+      "Your resume includes every listed role skill. Review projects for measurable outcomes and keep your examples current."
+    );
+  }
+
+  const allJobs = await getAllActiveJobs();
+  const ats = scoreAts(text, skills, role);
+  const recommendations = computeRecommendations(text, role, allJobs).slice(0, 60);
+
+  const now = new Date().toISOString();
+
+  // Persist resume record
+  const savedResumeDoc = await saveResume({
+    userId,
+    filename,
+    extractedText: text,
+    skills,
+    uploadedAt: now,
+    updatedAt: now,
+  });
+
+  // Persist ATS Analysis
+  await saveAtsAnalysis({
+    userId,
+    resumeId: savedResumeDoc._id?.toString(),
+    targetRoleId: role.id,
+    ats,
+    analyzedAt: now,
+  });
+
+  // Persist Recommendations
+  await saveRecommendations({
+    userId,
+    resumeId: savedResumeDoc._id?.toString(),
+    targetRoleId: role.id,
+    algorithmVersion: "v1",
+    recommendations,
+    generatedAt: now,
+  });
+
+  // Update user's target role
+  await setCurrentUserTargetRole(role.id);
 
   return {
     filename,
@@ -286,40 +348,76 @@ export function analyzeResume(filename: string, text: string, targetRoleId: stri
     readiness: roleFit.readiness,
     matchedRoleSkills: roleFit.matched,
     missingRoleSkills: roleFit.missing,
-    ats: scoreAts(text, skills, role),
-    recommendations: recommendJobs(text, targetRoleId).slice(0, 60),
+    ats,
+    recommendations,
     improvementPlan,
   };
 }
 
-export function getDemoDashboard(targetRoleId = "data-analyst") {
-  const role = roleById(targetRoleId);
+export async function getDemoDashboard(requestedRoleId?: string): Promise<Dashboard> {
+  const user = await getCurrentUser();
+  const targetRoleId = requestedRoleId || user.targetRoleId || "data-analyst";
+  const role = await getRoleById(targetRoleId);
   if (!role) throw new Error("Role not found");
-  const analysis = analyzeResume("Alex-Sharma-demo-resume.txt", demoResume, role.id);
+
+  const userId = user.id;
+  const totalJobsCount = await countJobs();
+
+  // Check if user has an existing analysis in MongoDB
+  const latestResume = await getLatestResumeByUserId(userId);
+  const latestAtsDoc = await getLatestAtsAnalysis(userId, role.id);
+  const latestRecsDoc = await getLatestRecommendations(userId, role.id);
+
+  if (latestResume && latestAtsDoc && latestRecsDoc) {
+    const roleFit = calculateReadiness(latestResume.skills, role);
+    return {
+      name: user.name,
+      targetRole: role,
+      skills: latestResume.skills,
+      readiness: roleFit.readiness,
+      ats: latestAtsDoc.ats,
+      recommendations: latestRecsDoc.recommendations.slice(0, 60),
+      jobsFound: totalJobsCount,
+    };
+  }
+
+  // If no persistent resume exists yet for this role, generate and persist baseline demo analysis
+  const baselineAnalysis = await analyzeResume("Alex-Sharma-demo-resume.txt", demoResume, role.id);
   return {
-    name: "Alex Sharma",
+    name: user.name,
     targetRole: role,
-    skills: analysis.skills,
-    readiness: analysis.readiness,
-    ats: analysis.ats,
-    recommendations: analysis.recommendations.slice(0, 60),
-    jobsFound: jobs.length,
+    skills: baselineAnalysis.skills,
+    readiness: baselineAnalysis.readiness,
+    ats: baselineAnalysis.ats,
+    recommendations: baselineAnalysis.recommendations.slice(0, 60),
+    jobsFound: totalJobsCount,
   };
 }
 
-export function getRecommendationsForRole(roleId: string, text: string): JobMatch[] {
-  if (!roleById(roleId)) throw new Error("Role not found");
-  return recommendJobs(text, roleId);
+export async function getRecommendationsForRole(roleId: string, text: string): Promise<JobMatch[]> {
+  const role = await getRoleById(roleId);
+  if (!role) throw new Error("Role not found");
+
+  const allJobs = await getAllActiveJobs();
+  const recommendations = computeRecommendations(text, role, allJobs).slice(0, 60);
+
+  // Persist generated recommendations for user
+  const userId = getCurrentUserId();
+  await saveRecommendations({
+    userId,
+    targetRoleId: role.id,
+    algorithmVersion: "v1",
+    recommendations,
+    generatedAt: new Date().toISOString(),
+  });
+
+  return recommendations;
 }
 
-export function skillCategoryForName(name: string): string {
-  return findSkillDefinition(name)?.category ?? "Tools";
+export async function getSupportedRoles(): Promise<Role[]> {
+  return getAllRoles();
 }
 
-export function getSupportedRoles(): Role[] {
-  return roles;
-}
-
-export function getRoleRequirements(id: string): Role | undefined {
-  return roleById(id);
+export async function getRoleRequirements(id: string): Promise<Role | null> {
+  return getRoleById(id);
 }

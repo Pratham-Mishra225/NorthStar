@@ -13,7 +13,43 @@ import * as zod from 'zod';
  * @summary Health check
  */
 export const HealthCheckResponse = zod.object({
-  "status": zod.string()
+  "status": zod.string(),
+  "database": zod.string().optional()
+})
+
+
+/**
+ * @summary Get current user job interactions and activity history
+ */
+export const GetInteractionsResponse = zod.object({
+  "interactions": zod.record(zod.string(), zod.array(zod.string())),
+  "activityLog": zod.array(zod.object({
+  "id": zod.string(),
+  "userId": zod.string(),
+  "jobId": zod.string(),
+  "action": zod.enum(['viewed', 'saved', 'applied']),
+  "timestamp": zod.string()
+}))
+})
+
+
+/**
+ * @summary Record user job interaction (viewed, saved, applied)
+ */
+export const RecordInteractionBody = zod.object({
+  "jobId": zod.string(),
+  "action": zod.enum(['viewed', 'saved', 'applied'])
+})
+
+export const RecordInteractionResponse = zod.object({
+  "interactions": zod.record(zod.string(), zod.array(zod.string())),
+  "activityLog": zod.array(zod.object({
+  "id": zod.string(),
+  "userId": zod.string(),
+  "jobId": zod.string(),
+  "action": zod.enum(['viewed', 'saved', 'applied']),
+  "timestamp": zod.string()
+}))
 })
 
 
@@ -239,6 +275,7 @@ export const getJobsQueryLimitMax = 300;
 
 
 
+
 export const GetJobsQueryParams = zod.object({
   "q": zod.coerce.string().optional(),
   "category": zod.coerce.string().optional(),
@@ -246,7 +283,8 @@ export const GetJobsQueryParams = zod.object({
   "jobType": zod.coerce.string().optional(),
   "workMode": zod.coerce.string().optional(),
   "sort": zod.enum(['best-match', 'highest-match', 'newest']).optional(),
-  "limit": zod.coerce.number().int().min(1).max(getJobsQueryLimitMax).optional()
+  "limit": zod.coerce.number().int().min(1).max(getJobsQueryLimitMax).optional(),
+  "page": zod.coerce.number().int().min(1).optional()
 })
 
 export const GetJobsResponseItem = zod.object({

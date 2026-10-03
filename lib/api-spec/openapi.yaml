@@ -30,6 +30,37 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /interactions:
+    get:
+      operationId: getInteractions
+      tags: [activity]
+      summary: Get current user job interactions and activity history
+      responses:
+        "200":
+          description: User interactions and activity log
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserInteractions"
+    post:
+      operationId: recordInteraction
+      tags: [activity]
+      summary: Record user job interaction (viewed, saved, applied)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InteractionInput"
+      responses:
+        "200":
+          description: Updated interactions state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserInteractions"
+        "400":
+          description: Invalid interaction payload
   /dashboard:
     get:
       operationId: getDashboard
@@ -140,6 +171,11 @@ paths:
             type: integer
             minimum: 1
             maximum: 300
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
       responses:
         "200":
           description: Matching demo jobs
@@ -207,6 +243,8 @@ components:
       type: object
       properties:
         status:
+          type: string
+        database:
           type: string
       required:
         - status
@@ -496,4 +534,42 @@ components:
                 type: integer
             required: [range, count]
       required: [jobsViewed, jobsSaved, jobsApplied, averageMatch, atsScore, readiness, categories, gaps, activity, distribution]
+    InteractionInput:
+      type: object
+      properties:
+        jobId:
+          type: string
+        action:
+          type: string
+          enum: [viewed, saved, applied]
+      required: [jobId, action]
+    Interaction:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        jobId:
+          type: string
+        action:
+          type: string
+          enum: [viewed, saved, applied]
+        timestamp:
+          type: string
+      required: [id, userId, jobId, action, timestamp]
+    UserInteractions:
+      type: object
+      properties:
+        interactions:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        activityLog:
+          type: array
+          items:
+            $ref: "#/components/schemas/Interaction"
+      required: [interactions, activityLog]
 
