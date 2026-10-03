@@ -1,92 +1,156 @@
 # AI Career Advisor
 
-A career readiness tool for students and early-career professionals. Upload your resume, choose a target role, and get an evidence-led view of how your experience aligns—with an ATS-style resume score, skill gap analysis, and curated job recommendations.
+A career readiness and resume alignment platform designed for students and early-career professionals. Upload a resume, select a target tech role, and receive explainable, evidence-backed evaluation—including an ATS-style heuristic score, prioritized skill gap analysis, and hybrid TF-IDF job recommendations.
+
+---
+
+## Overview
+
+Job applicants frequently submit resumes without clear visibility into how well their experience matches target job descriptions. **AI Career Advisor** addresses this by providing deterministic, transparent analysis that maps specific text evidence to role requirements, eliminating opaque "black-box" scoring.
 
 ---
 
 ## Problem Statement
 
-Job seekers—especially students—often apply blindly, with no clear signal of how their resume actually reads against a role's requirements. Generic advice ("add keywords", "tailor your resume") lacks the specificity to act on.
+- **Opaque Scoring**: Commercial ATS simulators often generate arbitrary percentages without actionable evidence.
+- **Blind Applications**: Students often apply to roles without knowing which core competencies are missing from their resumes.
+- **Privacy Concerns**: Many AI career tools upload and persist sensitive candidate PII on remote servers without clear retention policies.
+
+---
 
 ## Solution
 
-AI Career Advisor gives you a structured, explainable view of your resume against a specific role. Every insight is tied back to text evidence rather than opaque ML predictions, so you can see exactly what the system found—and what it didn't.
+AI Career Advisor delivers an explainable, privacy-first career evaluation engine:
+1. **Client-Side Text Extraction**: Resumes are parsed directly in the browser (via PDF.js and Mammoth.js). Raw resume text is **never stored on the server**.
+2. **Deterministic Evaluation**: Every score is mathematically derived from observable resume text, taxonomy matching, and vector similarity.
+3. **Actionable Feedback**: Highlights missing skills categorized by role priority (`core`, `important`, `additional`) to guide targeted project building.
 
 ---
 
 ## Core Features
 
-### ATS-Style Resume Analysis
-Upload a PDF, DOCX, or TXT resume. The system extracts readable text client-side (no server storage), runs it through a deterministic scoring heuristic, and returns a weighted breakdown:
+- **ATS-Style Resume Heuristic**: Transparent multi-dimensional scoring across keyword coverage, section detection, quantitative metrics, and contact details.
+- **Role Readiness Index**: Weighted readiness calculation against 12 standardized tech career paths.
+- **Skill Gap Identification**: Ordered list of high-priority competencies absent from resume text.
+- **Hybrid Job Matching**: Recommends relevant demo roles using a 70/30 blend of weighted skill overlap and in-memory TF-IDF cosine similarity.
+- **Browser-Local Interaction Tracking**: Bookmark, review, and track application milestones locally without requiring an account.
 
-| Component | Weight |
-|---|---|
-| Keyword coverage | 30% |
-| Skill match | 25% |
-| Sections present | 15% |
-| Projects / experience | 15% |
-| Contact information | 10% |
-| Formatting signals | 5% |
+---
 
-> **Transparency note:** This is an ATS-style heuristic, not a proprietary vendor ATS score. It reflects observable resume signals, not actual ATS system behavior.
+## Current Architecture
+
+```
+[ Browser Client (React 19 SPA) ]
+  │
+  ├─ PDF.js / Mammoth.js (Client-side text extraction)
+  ├─ localStorage (Demo activity & interaction flags)
+  ├─ TanStack Query v5 (Data fetching & query cache)
+  │
+  ▼ HTTP REST (/api/* proxied to port 5000)
+[ Express 5 API Server ]
+  │
+  ├─ Pino HTTP Logging & Zod Runtime Request/Response Validation
+  ├─ Career Analysis Service (Regex Taxonomy & ATS Heuristics)
+  ├─ Information Retrieval Engine (TF-IDF & Cosine Similarity)
+  │
+  ▼
+[ In-Memory Static Store ]
+  ├─ 12 Target Roles with Weighted Requirements
+  ├─ 60+ Skill Definitions with Aliases
+  └─ 168 Synthetic Job Listings (Catalog)
+```
+
+---
+
+## AI/ML Methodology
+
+### Skill Extraction
+Extracts technical competencies via boundary-aware regex matching against a taxonomy of 60+ skills and aliases. Confidence is calculated deterministically:
+
+$$\text{Confidence} = \min\left(0.98, 0.68 + \min(3, \text{mentions} - 1) \times 0.08 + (\text{hasSkillsSection} ? 0.08 : 0)\right)$$
 
 ### Role Readiness
-A weighted percentage of how many of a role's listed skills appear (with evidence) in your resume. Skills are categorised as **core**, **important**, or **additional**, each with a configured weight.
+Measures the proportion of required skills demonstrated in the resume, weighted by importance:
 
-### Skill Gap Analysis
-Surfaces the highest-priority skills from your target role that are not detected in your resume text, ordered by weight. Intended as a focused action list—not a complete skills inventory.
+$$\text{Readiness} = \left( \frac{\sum_{s \in \text{Matched}} \text{Weight}(s)}{\sum_{s \in \text{Role Skills}} \text{Weight}(s)} \right) \times 100$$
 
-### Job Recommendation Engine
-Matches you against a curated demo dataset of roles using a two-signal blend:
-- **70%** weighted skill overlap (which listed skills you have vs. the role requires)
-- **30%** TF-IDF/cosine text similarity (resume text vs. job description)
+### ATS-Style Analysis
+An explainable composite heuristic weighted across six observable dimensions:
 
-Each recommendation includes an explanation of *why* it was surfaced.
+$$\text{Score} = 0.30 \cdot K + 0.25 \cdot S + 0.15 \cdot Sec + 0.15 \cdot P + 0.10 \cdot C + 0.05 \cdot F$$
 
-### Explainability
-Every score ties back to resume evidence. The system shows matched keywords, matched skills, and which sections were found or missing—so you can understand and act on the result.
+- **$K$ (Keywords, 30%)**: Weighted presence of target role competencies.
+- **$S$ (Skills Section, 25%)**: Role skills explicitly placed within a detected `Skills` section.
+- **$Sec$ (Sections, 15%)**: Recognition of 7 standard resume headings.
+- **$P$ (Projects & Metrics, 15%)**: Presence of project sections, experience keywords, and quantified metric patterns (`%`, numbers).
+- **$C$ (Contact Details, 10%)**: Verification of email, phone, LinkedIn, and GitHub links.
+- **$F$ (Formatting, 5%)**: Minimum text length ($\ge 100$ chars) and clean non-alphanumeric ratio ($< 12\%$).
+
+### TF-IDF (Term Frequency-Inverse Document Frequency)
+Computes sparse vector representations for job descriptions and candidate resumes:
+
+$$\text{IDF}(t) = \ln\left(1 + \frac{N}{1 + \text{DF}(t)}\right)$$
+
+$$\text{TF-IDF}(t, d) = (1 + \ln(\text{count}(t, d))) \times \text{IDF}(t)$$
+
+### Cosine Similarity
+Calculates semantic text alignment between the candidate resume vector $\mathbf{u}$ and job listing vector $\mathbf{v}$:
+
+$$\text{Sim}(\mathbf{u}, \mathbf{v}) = \frac{\mathbf{u} \cdot \mathbf{v}}{\|\mathbf{u}\|_2 \|\mathbf{v}\|_2}$$
+
+### Hybrid Recommendation Score
+Final match scoring balances hard skill requirements with holistic text overlap:
+
+$$\text{MatchScore} = \text{round}(0.7 \times \text{SkillMatch} + 0.3 \times \text{TextSimilarity})$$
+
+---
+
+## Data
+
+The application operates on a **curated synthetic demo dataset** containing:
+- **12 Target Tech Roles**: Data Analyst, Frontend Developer, Backend Developer, Full Stack Engineer, ML Engineer, etc.
+- **168 Synthetic Job Postings**: Procedurally generated job descriptions with salary ranges, work modes, and required skill profiles.
+- **Demo Resume**: Standard sample profile for instant exploration without uploading files.
+
+> **Notice**: Job postings are illustrative learning examples and do not represent open live vacancies.
 
 ---
 
 ## Technology Stack
 
-| Layer | Technology |
-|---|---|
-| Frontend | React 19, Vite 7, TypeScript 5.9, Tailwind CSS v4 |
-| Routing | Wouter |
-| Data fetching | TanStack Query v5 |
-| API | Express 5, Node.js 24 |
-| Schema / validation | Zod |
-| PDF extraction | pdfjs-dist (client-side) |
-| DOCX extraction | Mammoth (client-side) |
-| Charts | Recharts |
-| Package manager | pnpm workspaces |
+| Layer | Technologies |
+| :--- | :--- |
+| **Frontend** | React 19, TypeScript 5.9, Vite 7, Tailwind CSS v4, Wouter |
+| **Data Fetching** | TanStack Query v5 |
+| **Document Extraction** | PDF.js (`pdfjs-dist`), Mammoth.js |
+| **Visualizations** | Recharts, Lucide Icons |
+| **Backend API** | Express 5, Node.js (bundled via esbuild), Pino HTTP |
+| **Validation & Types** | Zod, OpenAPI 3.0, Orval (automated client/schema generation) |
+| **Package Manager** | pnpm Workspaces |
 
 ---
 
 ## Project Structure
 
 ```
-/
 ├── artifacts/
-│   ├── career-advisor/          # React frontend (@ai-career-advisor/web)
-│   │   ├── src/
-│   │   │   ├── App.tsx          # All pages and routing (single-file SPA)
-│   │   │   ├── index.css        # Design tokens and global styles
-│   │   │   ├── components/ui/   # Radix-based UI primitives
-│   │   │   └── hooks/           # Shared hooks
-│   │   └── public/              # Static assets (favicon, robots.txt)
-│   └── api-server/              # Express API (@ai-career-advisor/api)
+│   ├── career-advisor/          # React 19 Frontend (@ai-career-advisor/web)
+│   │   ├── src/                 # Application source & UI components
+│   │   ├── public/              # Static brand assets
+│   │   └── vite.config.ts       # Vite build & API proxy configuration
+│   └── api-server/              # Express 5 API Server (@ai-career-advisor/api)
 │       └── src/
-│           ├── data/            # Curated demo dataset (roles, jobs, skills)
-│           ├── routes/          # API endpoints
-│           └── services/        # Career analysis and scoring logic
+│           ├── data/            # Static role taxonomy and synthetic jobs
+│           ├── routes/          # REST route handlers
+│           └── services/        # Career analysis, ATS scoring & TF-IDF
 ├── lib/
-│   ├── api-client-react/        # Auto-generated TanStack Query hooks
-│   ├── api-zod/                 # Zod schemas (generated from OpenAPI spec)
-│   ├── api-spec/                # OpenAPI specification (source of truth)
-│   └── db/                      # Future: database layer (not currently active)
-├── scripts/                     # Post-install and utility scripts
+│   ├── api-spec/                # OpenAPI 3.0 specification & Orval config
+│   ├── api-zod/                 # Generated Zod validation schemas
+│   └── api-client-react/        # Generated TanStack Query React hooks
+├── docs/
+│   ├── architecture.md          # Current runtime architecture details
+│   └── future-architecture.md   # Roadmap for database & ML enhancements
+├── scripts/                     # Utility scripts
 ├── pnpm-workspace.yaml
 ├── package.json
 └── README.md
@@ -94,92 +158,75 @@ Every score ties back to resume evidence. The system shows matched keywords, mat
 
 ---
 
-## Setup Instructions
+## Local Development
 
 ### Prerequisites
-- Node.js 20+
-- pnpm 9+
+- **Node.js**: v20+ 
+- **pnpm**: v9+
 
-### Install dependencies
-
+### Installation
 ```bash
+# Clone the repository
+git clone https://github.com/Pratham-Mishra225/NorthStar.git
+cd NorthStar
+
+# Install all workspace dependencies
 pnpm install
 ```
 
-### Start the API server
+### Running the Application
 
-The API server runs on port 5000 by default:
-
+In a terminal, start the Express API server (port 5000):
 ```bash
-PORT=5000 pnpm --filter @ai-career-advisor/api run dev:build
-PORT=5000 pnpm --filter @ai-career-advisor/api run dev
+pnpm --filter @ai-career-advisor/api run dev:build
+pnpm --filter @ai-career-advisor/api run dev
 ```
 
-### Start the frontend
-
-The frontend Vite dev server runs on port 3000 by default:
-
+In a second terminal, start the Vite frontend (port 3000):
 ```bash
 pnpm --filter @ai-career-advisor/web run dev
 ```
 
-Then open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-### Typecheck
-
+### Typecheck & Build
 ```bash
+# Typecheck all packages
 pnpm run typecheck
+
+# Build frontend and backend bundles
+pnpm run build
 ```
 
 ---
 
 ## Environment Variables
 
+Copy `.env.example` to create your local configuration:
+
 | Variable | Required | Default | Description |
-|---|---|---|---|
-| `PORT` | No | `3000` (web) / required (API) | Server port |
-| `BASE_PATH` | No | `/` | Vite base path (for hosting on a subpath) |
+| :--- | :--- | :--- | :--- |
+| `PORT` | No | `5000` | Express API server port |
+| `BASE_PATH` | No | `/` | Vite base path |
 
-No API keys, database credentials, or external service accounts are required to run the demo.
-
----
-
-## Demo Dataset
-
-The application runs entirely on a curated demo dataset. There are **no live job listings**, **no real employer data**, and **no placement outcomes**.
-
-- Job listings are hand-crafted examples representative of early-career tech roles
-- The demo resume (`Maya Chen`) is a fictional student profile
-- All skill scoring is deterministic and rule-based
-- Resume text is processed in the browser and sent to the API only for the duration of the request — it is never persisted
-
-Demo data is clearly labelled throughout the UI.
+No third-party API keys or database connections are required for local execution.
 
 ---
 
 ## Current Limitations
 
-- No user authentication or account system — state lives in browser localStorage
-- Resume text is not persisted — re-uploading is required to switch target roles
-- Job dataset is static and curated, not a live job feed
-- ATS scoring is a heuristic estimate, not a commercial ATS simulator
-- No email, calendar, or application-tracking integrations
+- **Stateless Backend**: User interaction history and uploaded analyses are held in browser `localStorage` rather than a centralized database.
+- **Synthetic Data**: Recommendations match against 168 procedurally generated roles rather than a real-time live job feed.
+- **Rule-Based Extraction**: Skills are detected via explicit taxonomy keywords rather than deep contextual NLP/NER.
 
 ---
 
-## Future Integrations
+## Future Scope
 
-The following are explicitly **not implemented** and are noted here as architectural decisions for when the product scales:
-
-| Capability | Status | Notes |
-|---|---|---|
-| Database persistence | Not implemented | `lib/db` contains a Drizzle + PostgreSQL scaffold; requires privacy and identity model decisions before activating |
-| Live job APIs | Not implemented | Integrate a job board API (e.g. Adzuna, JSearch) to replace the demo dataset |
-| LLM provider | Not implemented | Could be used to improve skill extraction or generate richer explanations |
-| Authentication | Not implemented | Required before persisting any user data server-side |
-| Course recommendations | Not implemented | Third-party course catalog API |
-| Email / notifications | Not implemented | Reminder or weekly summary emails |
-| Analytics | Not implemented | Usage analytics (privacy-compliant) |
+- **Phase 2**: Modularize frontend SPA into dedicated page and component directories.
+- **Phase 3**: Integrate MongoDB for authenticated multi-user persistence and historical tracking.
+- **Phase 4**: Implement dense transformer embeddings for semantic skill matching.
+- **Phase 5**: Connect live job APIs (e.g. Adzuna, Remotive) for real-world vacancy discovery.
 
 ---
 

@@ -1,63 +1,42 @@
 # AI Career Advisor — Integration Status
 
-The MVP runs without external APIs. It uses the existing React/Vite client and
-Express API. This project does not currently contain a FastAPI service or a
-database connection.
+The application currently operates with zero external APIs and zero remote databases. It uses a React/Vite frontend and an Express 5 API server with an in-memory synthetic catalog and browser-local state storage.
 
-## Current data flow
+---
 
-| Capability | Current source | Persistence |
-| --- | --- | --- |
-| Resume extraction | PDF.js, Mammoth, or pasted text in the browser | Extracted text stays in the current browser session |
-| Skill, readiness, and ATS analysis | Deterministic Express analysis using the role and skill catalog | Analysis result is kept in browser storage |
-| Job recommendations | Weighted skill overlap plus TF-IDF/cosine text similarity | Curated demo job catalog |
-| Job save/view/applied actions | Browser UI | Browser-local storage; "applied" never submits an application |
-| Reports | Demo report baseline plus local activity and analysis | Browser-local actions are not sent to the shared API |
+## 1. Current Runtime Data Flow
 
-Existing API capabilities include health status, dashboard and role
-requirements, resume analysis, job search/details, recommendations, and a
-demo reports baseline. Resume-analysis requests return results but do not
-save raw resume text or personal activity on the server.
+| Capability | Current Source | Persistence |
+| :--- | :--- | :--- |
+| **Resume Text Extraction** | PDF.js, Mammoth.js, or text paste in browser | Client-side memory (never stored on server) |
+| **Skill & ATS Analysis** | Deterministic Express heuristic services | In-memory evaluation; results cached in `localStorage` |
+| **Job Recommendations** | Weighted skill overlap + in-memory TF-IDF / Cosine Similarity | Curated synthetic dataset (168 demo jobs) |
+| **User Activity (Save / Apply)** | Client-side React interactions | Browser `localStorage` (`career-advisor-demo-v1`) |
+| **Reports & Analytics** | Express baseline + client-side activity aggregation | Browser session only |
 
-## CURRENTLY WORKING
+---
 
-- Local/demo job data (curated dataset in `artifacts/api-server/src/data/`)
-- Deterministic skill extraction from resume text
-- TF-IDF/cosine similarity for job matching
-- ATS-style resume analysis (explainable heuristic)
-- Role readiness scoring (weighted skill matching)
+## 2. Currently Working Capabilities
+
+- Curated demo job catalog (168 synthetic listings across 12 roles)
+- Deterministic skill extraction from resume text against a 60-skill taxonomy
+- TF-IDF vectorization and cosine similarity matching
+- Explainable ATS-style resume analysis (6 weighted categories)
+- Role readiness scoring based on prioritized skill weights
 - Browser-local activity tracking (viewed, saved, marked applied)
-- Reports with activity charts
+- Progress reporting with Recharts visualizations
 
-## FUTURE PLACEHOLDERS
+---
 
-The following are not implemented. Do not add them until the privacy and
-identity model has been decided and approved:
+## 3. Future Placeholders & Roadmap
 
-### Database persistence
+The following integrations are **not implemented** in the current phase:
 
-`lib/db/` contains a Drizzle + PostgreSQL scaffold. It is not wired up.
-The current design intentionally keeps user activity in each browser because
-the MVP has no login or account-isolation system.
-
-**Before activating database persistence:**
-
-1. Add `DATABASE_URL` as a server-side environment variable (never in source control, client-side code, or logs).
-2. Configure the non-secret `DATABASE_NAME` value in the server environment.
-3. Decide whether records are anonymous per-browser or attached to authenticated users before persisting resume analyses or interactions.
-4. Add server-side validation, indexes, a documented seed/reset process, and database-backed report queries.
-5. Keep the current demo/local mode available when the database is not configured.
-
-### Other services not yet integrated
-
-| Service | Notes |
-| --- | --- |
-| Live job APIs | Replace the demo dataset; requires API key and rate-limit handling |
-| LLM provider | Improve skill extraction or generate richer explanations |
-| Authentication | Required before persisting any user data server-side |
-| Course provider | Third-party course catalog for skill gap recommendations |
-| Email | Reminder or summary emails |
-| Analytics | Privacy-compliant usage analytics |
-
-Store any credentials as server-side environment variables and document the
-provider's data handling and failure behavior here when adding them.
+| Service / Capability | Planned Target | Notes |
+| :--- | :--- | :--- |
+| **Persistent Database** | Phase 3 (MongoDB) | Store authenticated user profiles, saved jobs, and historical analysis reports |
+| **Semantic AI Embeddings** | Phase 4 (Transformers / Vector DB) | Dense vector retrieval and contextual skill entity recognition |
+| **Live Job Feeds** | Phase 5 (External Job APIs) | Replace synthetic listings with real open vacancies |
+| **User Authentication** | Phase 3 (JWT / OAuth 2.0) | Secure multi-tenant user account isolation |
+| **LLM Inference** | Future Phase | Personalized career coaching suggestions and resume rewriting guidance |
+| **Course Recommendations** | Future Phase | Integration with online learning catalogs (Coursera, edX) |
